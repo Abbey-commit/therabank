@@ -1,0 +1,414 @@
+---
+title: "Bank_loan_project"
+author: "Abiodun"
+date: "9/12/2020"
+output: html_document
+---
+
+```{r}
+library(tidyquant)
+library(knitr)
+library(ppcor)
+library(dplyr)
+library(outliers)
+library(readxl)
+library(ggplot2)
+library(pastecs)
+library(olsrr)
+library(purrr)
+library(tidyverse)
+library(animation)
+library(cluster)
+library(lime)
+library(caret)
+library(pROC)
+library(forcats)
+library(recipes)
+library(caret)
+library(ggplot2)
+library(ggthemes)
+library(gridExtra)
+library(randomForestExplainer)
+library(dplyr)
+library(factoextra)
+library(ggcorrplot)
+library(ggpubr)
+library(GGally)
+library(corrr)
+
+```
+
+
+
+```{r}
+loan <- read.csv(file.choose(), header = T)
+str(loan)
+```
+#Having loaded our data as given to us from TheraBank database, we check for the structure of the of the data calling str function. We could see that we provided with data of 5000 observations, 14 variables that are numeric. 
+#In the following exercises we are going to be working on the data in a step by step start from cleaning of data/pre-processing, then move to fitting models that we are going to train the data with, and then analyse the result according to the feature and how they are being presented.
+
+```{r}
+sum(is.na(loan))
+mean(is.na(loan))
+```
+
+#Data Wrangling: We start by checking for NA i.e "not available" which are missing values.
+```{r}
+clean_loan <- na.omit(loan)
+```
+
+```{r}
+str(clean_loan)
+```
+#
+```{r}
+clean_loan$ID <- NULL
+clean_loan$ZIP.Code <- NULL
+```
+
+```{r}
+cor(clean_loan$Experience..in.years., clean_loan$Personal.Loan)
+```
+
+```{r}
+library(ggpubr)
+```
+
+
+```{r}
+ggscatter(clean_loan, x="Education", y="Personal.Loan", add = "reg.line", conf.int = T, cor.coef =T, cor.method = "pearson", xlabel= "Education", ylabel = "Personal.Loan")
+```
+
+```{r}
+ggscatter(clean_loan, x = "Mortgage", y = "Personal.Loan", add = "reg.line", conf.int = T, cor.coef = T, cor.method = "Spearman", xlabel = "Mortgage", ylabel = "Personal Loan")
+```
+
+```{r}
+ggscatter(clean_loan, x = 'CreditCard', y = 'Personal.Loan', add = "reg.line", conf.int = T, cor.method = "Spearman", xlabel = "CreditCard", ylabel = "Personal loan")
+```
+
+```{r}
+ggscatter(clean_loan, x = "Online", y = "Personal.Loan", add = "reg.line", conf.int = T, cor.method = "Spearman", xlabel = "Online", ylabel = "Personal loan")
+```
+
+```{r}
+library(corrr)
+corr1 <- round(cor(clean_loan))
+head(corr1[1,12])
+```
+#The function cor_pmat is used to get the correlations matrix computation, partiularly the p_value, at each column in the table.
+```{r}
+cor_matrics <- cor_pmat(clean_loan)
+head(cor_matrics)
+```
+#corr1 is being display in graph for visual the spot showing pure red are showing the variables that strongly correlated in pairs.
+```{r}
+ggcorrplot(corr1)
+```
+
+#Using mutate, variable names such as Age, Experience, Income, and Security are created different from the previous names.
+```{r}
+clean_loan1 <- clean_loan %>% mutate(Age = Age..in.years., Exper = Experience..in.years., Monthly.income = Income..in.K.month., secured.account = Securities.Account)
+```
+
+```{r}
+str(clean_loan1)
+```
+#In order not to create unnecessary columns that would not be useful, it becomes paramounts to drop the columns created in the process of renaming those columns. Which was what we did in the two steps above.
+```{r}
+clean_loan1$Age..in.years. <- NULL
+clean_loan1$Experience..in.years. <- NULL
+clean_loan1$Income..in.K.month.<- NULL
+clean_loan1$Securities.Account <- NULL
+```
+
+```{r}
+max(clean_loan1$Mortgage)
+str(clean_loan1)
+```
+#Trying in the last face of data cleaning, variables such as Age, Mortgage, Exper, CreditCard and CD.Account are selected and worked on by transforming in them into categories. We use the the keyword case_when to do the disections.
+
+```{r}
+clean_loan2 <- clean_loan1 %>% mutate(Age = case_when(Age >=0 & Age <=29~"1", Age >=30 & Age<=50~"2", Age>=51 & Age<=70~"3"))
+clean_loan2 <- clean_loan2 %>% mutate(Mortgage = case_when(Mortgage >=0 & Mortgage<=200~"low", Mortgage >= 201 & Mortgage <=400~"Medium", Mortgage >=401 & Mortgage <=635~"high" ))
+```
+
+
+```{r}
+clean_loan3 <- clean_loan2 %>% mutate(Exper = case_when(Exper >=-4 & Exper<=20~"Low", Exper>=21 & Exper<=41~"Medium", Exper>=42 & Exper <=70~"High"))
+
+clean_loan4 <- clean_loan3 %>% mutate(CreditCard = case_when(CreditCard>=0 & CreditCard <=0~"Low", CreditCard >=1 & CreditCard <=1~"High"))
+
+clean_loan5 <- clean_loan4 %>% mutate(CD.Account = case_when(CD.Account >=0 & CD.Account <=0~"Low", CD.Account >=1 & CD.Account<=1~"High"))
+```
+#Making a change of columns in the table we make the convertion 
+```{r}
+clean_loan5$Personal.Loan<-as.factor(clean_loan5$Personal.Loan)
+clean_loan5$Age <- as.factor(clean_loan5$Age)
+clean_loan5$Exper <- as.factor(clean_loan5$Exper)
+clean_loan5$CreditCard <- as.factor(clean_loan5$CreditCard)
+clean_loan5$CD.Account <- as.factor(clean_loan5$CD.Account)
+clean_loan5$Online <- as.factor(clean_loan5$Online)
+clean_loan5$secured.account <- as.factor(clean_loan5$secured.account)
+clean_loan5$Education<-as.factor(clean_loan5$Education)
+clean_loan5$Mortgage<- as.factor(clean_loan5$Mortgage)
+```
+#Making use of the following 
+
+```{r}
+p1<- ggplot(clean_loan5, aes(x=Family.members)) + ggtitle("Proportion of the family group") + xlab("Family member of bank customers") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") +coord_flip()+ theme_minimal()
+
+p2<-ggplot(clean_loan5, aes(x=CCAvg))+ ggtitle("proportion of customer average spending card par month")+
+xlab("Average spending credit card per month")+geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + xlab("Percentage")+theme_minimal()
+
+p3<-ggplot(clean_loan5, aes(x=Online))+ ggtitle("proportion of customer using internet services")+ xlab("Online banking services") + geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage")+coord_flip()+theme_minimal()
+
+p4<-ggplot(clean_loan5, aes(x=CreditCard))+ ggtitle("proportion of customer that use credit card")+ xlab("Customer with credit card")+ geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") +coord_flip()+ theme_minimal()
+
+p5<-ggplot(clean_loan5, aes(x=secured.account))+ ggtitle("proportion of customer that has security account")+ xlab("Security Account")+ geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage")+coord_flip()+theme_minimal()
+grid.arrange(p1, p2, p3, p4, p5, ncol=2)
+
+#p1; p2
+```
+
+```{r}
+
+p6<-ggplot(clean_loan5, aes(x=Monthly.income))+ ggtitle("Proportion of customer and their individual income")+ xlab("Income of customer per month")+geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage")+theme_minimal()
+
+p7<-ggplot(clean_loan5, aes(x=CD.Account)) + ggtitle("proportion of customer with cert of deposit with bank")+ xlab("Cert of deposit with bank") + geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage")+theme_minimal()
+
+p8<-ggplot(clean_loan5, aes(x=Exper)) + ggtitle("Proportion of customer with experience")+ xlab("Customer Experience")+geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage")+theme_minimal()
+
+p9<-ggplot(clean_loan5, aes(Education)) + ggtitle("Proportion of customer according to Education")+ xlab("Customer Education") + geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + theme_minimal()
+
+p10<-ggplot(clean_loan5, aes(x=Age)) + ggtitle("proportion of customer and the age")+ xlab("Customer Age")+geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage")+theme_minimal()
+
+p11<-ggplot(clean_loan5, aes(x=Mortgage)) + ggtitle("proportion of customer mortgage") + xlab("Customer Mortgage") + geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage")+theme_minimal()
+grid.arrange(p6, p7, p8, p9, p10, p11, ncol=2)
+```
+
+```{r}
+str(clean_loan5)
+```
+
+
+#The distribution between Experience, Age variables are not normally distributed thus are needed to be scaled. From the view above we can see that variables like CCAvg, Income are not normally distributed as well. So for all this anomalys we are goin to make case for them in the subsequent operation after the next step. At that stage we are going to make use of "recipe" to carry out operations like transformation of data by: step_log, standization of data by:step_scale etc. So as ensure that our variable are well distributed numerically. And then bake the data.   
+
+
+##Preprocessing: We break down the dataset into two, and set seed to ensure that at each level of the next operations the datapoints are pick at random without repetition of observations at each time of result. Also split the the variable into 70/30 proportions, and name them loan_train, and loan_test respectively. We decided to so that at each time we carry out any operation it is first done on loan_train and to ensure justice we carry out the same out on loan5_test.
+```{r}
+set.seed(1500)
+split<-sample(seq_len(nrow(clean_loan5)),
+              size=floor(0.70*nrow(clean_loan5)))
+loan5_train<-clean_loan5[split,]
+loan5_test<-clean_loan5[-split,]
+dim(loan5_train)
+dim(loan5_test)
+```
+
+```{r}
+str(clean_loan5)
+```
+
+```{r}
+loan5_recipe<-recipe(Personal.Loan~., data = clean_loan5)%>%
+  step_log( Monthly.income)%>%
+  step_dummy(all_nominal(), -all_outcomes())%>%
+  step_center(all_predictors(), -all_outcomes())%>%
+  step_scale(all_predictors(), -all_outcomes())%>%
+  prep(data = clean_loan5)
+```
+
+```{r}
+
+loan5_train_bake<-bake(loan5_recipe, new_data=loan5_train)
+loan5_test_bake<-bake(loan5_recipe, new_data=loan5_test)
+glimpse(loan5_train_bake)
+```
+#Loan and check for Accuracy using evaluation metrics. Basing the judgement on the level of the relievance of each result on the accuracy, sensitivity, and specificity. 
+
+#Trying carry out clustering practices, We decide to use elbol method to find or determine our k means.
+```{r}
+fviz_nbclust(loan5_train_bake, FUN=kmeans, method = "wss")
+
+```
+
+#After detecting the number of grouping to choose, we decide to choose 4 groups
+
+```{r}
+ln_pc_clus2<-kmeans(loan5_train_bake, 4)
+ln_pc_clus2$size
+```
+
+#Trying to decide the aglomerative coefficient that is best for for us among the provided for methods we a vector to categorise them into groups as well use the function x as columns we want out our datasets to be computed into we make use of function agnes on the variable and the rest and eventually gotten result of 0.9995under "ward to be highest coefficient among the others.
+```{r}
+
+ln_clus_m<-c("average", "single", "complete", "ward")
+names(ln_clus_m)<-c("average", "single", "complete", "ward")
+ln_ac<-function(x){agnes(loan5_train_bake, method = x)$ac
+}
+map_dbl(ln_clus_m, ln_ac)
+```
+
+#Here we try to carry out our hierarchical clustering using diana function and passing our trained data into it as our parameter to process into groups.
+
+```{r}
+loan5_hc4<-diana(loan_train_bake)
+pltree(loan5_hc4, hang=-1, cex=0.6)
+rect.hclust(loan5_hc4, k=9, border = 2:10)
+```
+
+#To start with, resampling using cross validation and setting it to repeat once also to resample the fitted data three times.
+
+```{r}
+loan5.cv<-trainControl(method = "repeatedcv", repeats=1, number = 3)
+```
+
+```{r}
+
+loan5_logis<-train(form=Personal.Loan~., data=loan5_train_bake, method = "glm", family="binomial", trControl = loan5.cv)
+```
+
+```{r}
+loan5_predlog<-predict(loan5_logis, loan5_test_bake, type="raw")
+#loan5_bake_test$Personal.Loan <- factor(loan5_bake_test$Personal.Loan, levels = levels(loan5_predlog))
+confusionMatrix(as.factor(loan5_test_bake$Personal.Loan), as.factor(loan5_predlog))
+```
+#This is linear regression, it makes use of generalised linear model, the family is binomial. We got accuracy of 0.9599 which is quite high and good to some extent but lets see what it will look like in comparison to other model types.
+
+```{r}
+class(loan5_predlog)
+```
+```{r}
+class(loan5_test_bake$Personal.Loan)
+```
+
+#Fit model for random forest
+```{r}
+mtry<-sqrt(ncol(loan5_train_bake))
+rftunegrid<- expand.grid(.mtry=mtry)
+loan5_Mod<-train(form=Personal.Loan~., data=loan5_train_bake, method="rf", metric = "Accuracy", tuneGrid = tunegrid, trControl = cv_ctrl)
+```
+#mtry specifies the number of variables that should be selected using random number from a set of predictors when form trees under random forest. But it ensures that the square root of the variable were the ones sought after.
+```{r}
+loan5_rfModel<- predict(loan5_Mod, loan5_test_bake, type="raw")
+confusionMatrix(loan5_rfModel, loan5_test_bake$Personal.Loan)
+```
+#Now let us see the result of this model and check for its accuracy, looking at the table the accuracy is as high as 0.9806. quite high but let see what others model says.
+
+#Fitted model for CART Check for Accuracy using evaluation metrics. Now we are faced decision tree to predict the Thera Bank customers that likely to pick up the bank loan services. The root node which signifies the starting point of showing positive(1) or negative(0) part of each side of each variabl. For better view click the first icon at the top right corner on the page of the image display, terminal and the branch of the tree in the respective manners. 
+```{r}
+library(rpart)
+loan5Crt_Mod<-rpart(Personal.Loan~., data=loan5_train_bake, method = "class")
+par(xpd=NA)
+plot(loan5Crt_Mod)
+text(loan5Crt_Mod, digits=3)
+```
+#Now let us tke a look at the table under decision tree model. In it we can easily see that it at 0.9793. Its quite a ggod one but let us proceed and make a case for the last but not the least model before we choose that provides us with highest value.
+```{r}
+loan5PredCART<-predict(loan5Crt_Mod, newdata=loan5_test_bake, type="class")
+confusionMatrix(loan5_test_bake$Personal.Loan, loan5PredCART)
+```
+
+#Fitted model for XGBoost and check for Accuracy. Creating a variable called xgb_grid and storing set of parameters such as nround, eta, gamma etc that are included in a data frame.
+```{r}
+xgb_grid<-expand.grid(nrounds=100, eta=0.3, gamma=0, max_depth=3, min_child_weight=1, subsample=1, colsample_bytree=1)
+loan5_xgbModel<-train(form = Personal.Loan~., data = loan5_train_bake, method="xgbTree", trControl=cv_ctrl, tuneGrid=xgb_grid, nthread=4 )
+```
+#As usually after fitting the model to be trained, we can see the confusion matrix in which accuracy of 0.9853 is computated. This seems to serve as the highest accuracy value so we gonna go for it.
+```{r}
+predLoan5XgbModel<-predict(loan5_xgbModel, loan5_test_bake, type="raw")
+confusionMatrix(predLoan5XgbModel, loan5_test_bake$Personal.Loan)
+```
+
+##ROC Curve for metric evaluation of each model and check for the level of accuracy, as well as the model with widest area coverage.  
+```{r}
+response1<-predictor1<-c()
+response1<-c(response1, loan5_test_bake$Personal.Loan)
+predictor1<-c(predictor1, loan5_predlog)
+loan_roc1<-plot.roc(response1, predictor1, main="ROC Curve for Fitted Model", ylab="True positive rate", xlab="False positive rate", percent=TRUE, col="green")
+
+response2<-predictor2<-c()
+response2<-c(response2, loan5_test_bake$Personal.Loan)
+predictor2<-c(predictor2, loan5PredCART)
+par(new=T)
+loan_roc2<-plot.roc(response2, predictor2, main="ROC Curve for Fitted Model", ylab="True positive rate", xlab="False positive rate", percent=TRUE, col="red")
+#ROC Curve for Random Forest
+
+response3<-predictor3<-c()
+response3<-c(response3, loan5_test_bake$Personal.Loan)
+predictor3<-c(predictor3, loan5_rfModel)
+par(new=T)
+loan_roc3<-plot.roc(response3, predictor3, main="ROC Curve for Fitted Model", ylab="The positive rate", xlab="False positive rate", percent=TRUE, col="magenta")
+
+##ROC Curve for XGBoost
+
+response4<-predictor4<-c()
+response4<-c(response4, loan5_test_bake$Personal.Loan)
+predictor4<-c(predictor4, predLoan5XgbModel)
+par(new=T)
+loan_roc4<-plot.roc(response4, predictor4, main="ROC Curve for Fitted Model", ylab="The positive rate", xlab="False positive rate", percent=TRUE, col="blue")
+legend("bottomright", legend = c("logR", "CART", "random forest", "xgboost"), col = c("green", "red", "magenta", "blue"),lwd=2)
+```
+#From the graph above, it becomes clear that xgboost has the widest area of coverage and from the relative result with other models, it has the highest accuracy, thus it is selected for being the model with most preferred result. And now lime will be used to create an explainer to which will be needed to use and explain the chosen model.
+
+```{r}
+loan5_model_explainer<-lime::lime(
+  x = loan5_train_bake,
+  model       =loan5_xgbModel,
+  #model_type        =     "xgboost",
+  #n_continuous = T,
+  quantile_bin = F
+  
+)
+class(loan5_model_explainer)
+summary(loan5_model_explainer)
+```
+#In lines above we did some operations as they are analysed in the following ways. A variable 'explainer' was created in which we passed the operation performed by a function lime to expplain our chosen algorithm ().
+#And using the keyword lime, which perform local interpretation of result, is also used as a function to execute it. Then Proceed to next line of block of code to carry out the operation of the preceeding operation, by creating a container called 'loan_model_explanation'. This block uses the result from preceeding operation to use labels set to '1' because we are interested in asset customers, feature_selection to select the feature with highest weight etc, to explain loan_test_bake having model the previous variable loan_train_bake. Plot_feature is used to present the result derived from the operations for visual.
+```{r}
+loan5_model_explanation<-lime::explain(
+  loan5_test_bake[1:5, ],
+  explainer  =  loan5_model_explainer,
+  n_features  =  5,
+  feature_selection  =  "highest_weights",
+  labels = "1"
+  )
+```
+#Having set our explainer the next thing is we want to make use of explain function to explain the feature in our model xgboost to be precise, since it is what we decide to make use of as the only model that provided us with highest accuracy.
+```{r}
+plot_features(loan5_model_explanation) +
+  labs(title = "Feature Importance for the Xgboost Model",
+       subtitle = " Selected four cases")
+```
+#In the above display of the feature importance of xgboost model, reveals the features that are strongly positive (support) or strongly  negative (contradicts) in the nature of contribution towards either making an asset customer or making a liability customer. Depending on which each of the weight ranges from strong, medium, weak. And to capture the global perspective using, correlation plot we make use of some functions such as correlate, focus, rename, arrange and mutate to manipulate the visualisation of the global distribution.
+
+```{r}
+loan5_train_bake$Personal.Loan <- as.numeric(loan5_train_bake$Personal.Loan) 
+  global_perspective <- loan5_train_bake %>%
+  correlate () %>%
+  focus(Personal.Loan) %>%
+  rename(Variable = rowname) %>%
+  arrange(abs(Personal.Loan)) %>%
+  mutate(feature = as.factor(Variable))
+global_perspective
+```
+#The table above shows the global distribution of features that are important on global perspective using corrr package from the perspective of xgboost model.
+
+```{r}
+global_perspective %>%
+  ggplot(aes(x = Personal.Loan, y = fct_reorder(Variable, desc(Personal.Loan)))) +
+  geom_point() +  geom_segment(aes(xend = 0, yend = Variable), color = palette_light()[[2]], data = global_perspective %>% filter(Personal.Loan> 0)) +
+  geom_point(color = palette_light()[[2]], data = global_perspective %>% filter(Personal.Loan > 0)) +geom_segment(aes(xend = 0, yend = Variable), 
+                                                                                                                color = palette_light()[[1]],  data = global_perspective %>% filter(Personal.Loan < 0)) + geom_point(color = palette_light()[[1]], 
+                                                                             data = global_perspective %>% filter(Personal.Loan < 0)) + geom_vline(xintercept = 0, color = palette_light()[[3]], size = 1, linetype = 2) + geom_vline(xintercept = -0.5, color = palette_light()[[3]], size = 1, linetype = 2) +geom_vline(xintercept = 0.5, color = palette_light()[[3]], size = 1, linetype = 2) + 
+   theme_bw() + labs(title = " Correlation Analysis for Staff Promotion",subtitle = paste("Negative Correlations (Prevent Loan),","Positive Correlations (Support Loan)"),y = "Feature Importance")
+                                                                                                                  
+```
+
+#The feature that appears at red line are the feature that show an increase chances in an asset Customer, while the line in blue color shows increase in chances of an average liability customer. By diagram the features that show correlation of the features that contribute towards making and identifying a customer that is likely to be an asset customer and the customer that is likely to be liability customer.
+
+```{r}
+```
+
